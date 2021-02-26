@@ -1,0 +1,68 @@
+version: "3.7"
+
+services:
+  db:
+    container_name: db
+    image: mysql:8.0.22
+    command: '--default-authentication-plugin=mysql_native_password'
+    restart: always
+    volumes:
+      - ./db/data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    secrets:
+      - db_password
+    environment:
+      - MYSQL_DATABASE=db
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db_password
+    networks:
+      - myvlan
+
+  filler:
+    container_name: filler
+    build: filler/
+    command: sh -c "./wait-for-it.sh db:3306 -t 0 -- python filler.py"
+    volumes:
+      - ./filler/data:/filler/data
+      - ./wait-for-it.sh:/filler/wait-for-it.sh
+    secrets:
+      - db_password
+    depends_on:
+      - db
+    networks:
+      - myvlan
+
+  flask_app:
+    container_name: flask_app
+    build: flask_app/
+    restart: always
+    command: sh -c "./wait-for-it.sh db:3306 -t 0 -- python flask_app.py"
+    volumes:
+      - ./wait-for-it.sh:/flask_app/wait-for-it.sh
+    ports:
+      - "6767:6767"
+    secrets:
+      - db_password
+    depends_on:
+      - filler
+      - db
+    networks:
+      myvlan:
+      front:
+        ipv4_address: 172.200.17.30
+
+secrets:
+  db_password:
+    file: db/password.txt
+
+networks:
+  front:
+    name: front
+    ipam:
+      config:
+        - subnet: 172.200.17.28/30
+  myvlan:
+    name: myvlan
+    driver: macvlan
+    driver_opts:
+      parent: enp4s0f0
